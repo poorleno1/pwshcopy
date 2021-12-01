@@ -1,4 +1,7 @@
-﻿$drive = "C:\scripts\DDT"
+﻿#Requires –Modules 7Zip4Powershell
+#Installation of 7zip module: Install-Module -Name 7Zip4Powershell -Confirm:$false -Force
+
+$drive = "C:\scripts\DDT"
 $source_path = Join-Path $drive -ChildPath "LZ"
 $destination_path = Join-Path $drive -ChildPath "Preservation"
 $trigger_path = Join-Path $drive -ChildPath "TRIGGER"
@@ -6,6 +9,7 @@ $trigger_path = Join-Path $drive -ChildPath "TRIGGER"
 $RequestFile = Join-Path $trigger_path -ChildPath "MSGM0018_BULK_REQUEST.csv"
 $DeliveryReport = Join-Path $trigger_path -ChildPath "MSGM0018_DELIVERY_REPORT.csv"
 #Delivery report contains one entry for dbdirid
+$hash_algoritm = "MD5"
 
 
 function Create-Folder ($destination_path, $foldername)
@@ -54,17 +58,8 @@ function Set-FolderStructure ($username, $PackageSource, $destination_path)
    $DataFolder = Join-Path $DataSourceFolder -ChildPath "Data"
    Create-Folder $DataFolder "Evidence"
 
-   #Create-Folder $UserNamePath "DataSource"
-   
-   #$DataSourceFolder = Join-Path $UserNamePath -ChildPath "DataSource"
-   #Create-Folder $DataSourceFolder $PackageSource
-   #Create-Folder $DataSourceFolder "Data"
-   
-   
-
    $Folders.Add("UserNamePath",$UserNamePath)
    $Folders.Add("DataSourceFolder",$DataSourceFolder)
-   #$Folders.Add("PackageSourceFolder",$DataSourceFolder+"\"+$PackageSource)
    $Folders.Add("DataFolder",$DataFolder)
    $Folders.Add("EvidenceFolder",$DataFolder+"\Evidence")
 
@@ -77,7 +72,7 @@ function Copy-Files ($source, $destination)
 
     try
     {
-        Copy-Item -Path $source -Destination $destination
+        $c = Copy-Item -Path $source -Destination $destination -PassThru
     }
     catch 
     {
@@ -85,8 +80,21 @@ function Copy-Files ($source, $destination)
     }
     finally
     {
-        Write-Host "Success."
+        if ($c.count -gt 0)
+        {
+            Write-Host "Success. Copied $($c.count) file(s)."
+        }
+        else
+        {
+            Write-Host "Failed. Copied $($c.count) files."
+        }
     }
+    return $c.name
+}
+
+function Check-Hash ($param1, $param2)
+{
+    
 }
 
 
@@ -97,7 +105,7 @@ $Package =  $_.filename
 $username = $_.filename.split("_")[0]
 $PackageSource  = $_.filename.split("_")[1]
 $PointOfInterest = $_.filename.split("_")[2]+"_"+$_.filename.split("_")[3]
-$7zipPassword = $_.password
+$7zipPassword = $_.passwords
 
 $folders = Set-FolderStructure $username $PackageSource $destination_path
 
@@ -106,7 +114,15 @@ $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandPrope
 
 $source = join-path $ParentPath -ChildPath $Package
 
-Copy-Files $source".7z*" $folders["DataFolder"]
-Copy-Files $source"*.txt" $folders["EvidenceFolder"]
+$zipfile = Copy-Files $source".7z*" $folders["DataFolder"]
+$zipFileContent = Get-7Zip $(join-path $folders["DataFolder"] -ChildPath $zipfile) -Password $7zipPassword | select -ExpandProperty filename
+$zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
+Add-Content $zipFileContentFileName -Value $zipFileContent
+
+
+
+
+$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
+
 
 }
