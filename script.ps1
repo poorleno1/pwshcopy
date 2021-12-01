@@ -1,4 +1,4 @@
-﻿$drive = "C:\DDT"
+﻿$drive = "C:\scripts\DDT"
 $source_path = Join-Path $drive -ChildPath "LZ"
 $destination_path = Join-Path $drive -ChildPath "Preservation"
 $trigger_path = Join-Path $drive -ChildPath "TRIGGER"
