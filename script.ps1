@@ -46,18 +46,25 @@ function Set-FolderStructure ($username, $PackageSource, $destination_path)
    Create-Folder $destination_path $username
    
    $UserNamePath = Join-Path $destination_path -ChildPath $username
-   Create-Folder $UserNamePath "DataSource"
-   
-   $DataSourceFolder = Join-Path $UserNamePath -ChildPath "DataSource"
-   Create-Folder $DataSourceFolder $PackageSource
+   Create-Folder $UserNamePath $PackageSource
+
+   $DataSourceFolder = Join-Path $UserNamePath -ChildPath $PackageSource
    Create-Folder $DataSourceFolder "Data"
-   
+
    $DataFolder = Join-Path $DataSourceFolder -ChildPath "Data"
    Create-Folder $DataFolder "Evidence"
 
+   #Create-Folder $UserNamePath "DataSource"
+   
+   #$DataSourceFolder = Join-Path $UserNamePath -ChildPath "DataSource"
+   #Create-Folder $DataSourceFolder $PackageSource
+   #Create-Folder $DataSourceFolder "Data"
+   
+   
+
    $Folders.Add("UserNamePath",$UserNamePath)
    $Folders.Add("DataSourceFolder",$DataSourceFolder)
-   $Folders.Add("PackageSourceFolder",$DataSourceFolder+"\"+$PackageSource)
+   #$Folders.Add("PackageSourceFolder",$DataSourceFolder+"\"+$PackageSource)
    $Folders.Add("DataFolder",$DataFolder)
    $Folders.Add("EvidenceFolder",$DataFolder+"\Evidence")
 
