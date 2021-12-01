@@ -92,7 +92,7 @@ function Copy-Files ($source, $destination)
     return $c.name
 }
 
-function Check-Hash ($param1, $param2)
+function Check-Hash ($File, $hash)
 {
     
 }
@@ -115,11 +115,25 @@ $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandPrope
 $source = join-path $ParentPath -ChildPath $Package
 
 $zipfile = Copy-Files $source".7z*" $folders["DataFolder"]
-$zipFileContent = Get-7Zip $(join-path $folders["DataFolder"] -ChildPath $zipfile) -Password $7zipPassword | select -ExpandProperty filename
+$zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
+$zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
 $zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
 Add-Content $zipFileContentFileName -Value $zipFileContent
 
 
+$hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt")
+$PackageHash = Get-FileHash $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -Algorithm $hash_algoritm
+
+
+$HashFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_HashLog.txt"
+if ($hash -eq $PackageHash.Hash)
+{
+    Add-Content $HashFileContentFileName -Value "Hashes of $zipfileFullName matched!. $($PackageHash.Hash)"
+}
+else
+{
+    Add-Content $HashFileContentFileName -Value "ERROR: Hashes of $zipfileFullName did not matched!. LogHash: $hash, calculated hash:$($PackageHash.Hash)"
+}
 
 
 $evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
