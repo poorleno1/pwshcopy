@@ -48,55 +48,42 @@ function Set-FolderStructure ($username, $PackageSource, $destination_path)
    $UserNamePath = Join-Path $destination_path -ChildPath $username
    Create-Folder $UserNamePath "DataSource"
    
-   $PackageSourceFolder = Join-Path $UserNamePath -ChildPath "DataSource"
-   Create-Folder $PackageSourceFolder $PackageSource
-   Create-Folder $PackageSourceFolder "Data"
+   $DataSourceFolder = Join-Path $UserNamePath -ChildPath "DataSource"
+   Create-Folder $DataSourceFolder $PackageSource
+   Create-Folder $DataSourceFolder "Data"
    
-   $DataFolder = Join-Path $PackageSourceFolder -ChildPath "Data"
+   $DataFolder = Join-Path $DataSourceFolder -ChildPath "Data"
    Create-Folder $DataFolder "Evidence"
 
    $Folders.Add("UserNamePath",$UserNamePath)
-   $Folders.Add("PackageSourceFolder",$PackageSourceFolder)
-   $Folders.Add("PackageSourceFolder",$PackageSourceFolder)
+   $Folders.Add("DataSourceFolder",$DataSourceFolder)
+   $Folders.Add("PackageSourceFolder",$DataSourceFolder+"\"+$PackageSource)
    $Folders.Add("DataFolder",$DataFolder)
    $Folders.Add("EvidenceFolder",$DataFolder+"\Evidence")
 
    return $Folders
 }
 
-
-
-function Set-FolderStructure2 ($username, $PackageSource, $destination_path)
+function Copy-Files ($source, $destination)
 {
-   $Folders = [ordered]@{}
-   
-   
-   Create-Folder $destination_path $username
-   
-   $DatasourcePath = Join-Path $destination_path -ChildPath $username
-   Create-Folder $DatasourcePath "DataSource"
-   
-   $PackageSourceFolder = Join-Path $DatasourcePath -ChildPath "DataSource"
-   Create-Folder $PackageSourceFolder $PackageSource
-   Create-Folder $PackageSourceFolder "Data"
-   
-   $DataFolder = Join-Path $PackageSourceFolder -ChildPath "Data"
-   Create-Folder $DataFolder "Evidence"
+    Write-Host "Copying $source to $destination"
 
-   $Folders.Add("DatasourcePath",$DatasourcePath)
-   $Folders.Add("PackageSourceFolder",$PackageSourceFolder)
-   $Folders.Add("PackageSourceFolder",$PackageSourceFolder)
-   $Folders.Add("DataFolder",$DataFolder)
-   $Folders.Add("EvidenceFolder",$DataFolder+"\Evidence")
-
-   return $Folders
+    try
+    {
+        Copy-Item -Path $source -Destination $destination
+    }
+    catch 
+    {
+        Write-Host "ERROR: File copy from $source to $destination failed." 
+    }
+    finally
+    {
+        Write-Host "Success."
+    }
 }
 
-function Copy-Files ($param1, $param2)
-{
-    
-}
 
+$DeliveryReportImported = Import-Csv $DeliveryReport
 
 Import-Csv $RequestFile | ForEach-Object {
 $Package =  $_.filename
@@ -105,9 +92,14 @@ $PackageSource  = $_.filename.split("_")[1]
 $PointOfInterest = $_.filename.split("_")[2]+"_"+$_.filename.split("_")[3]
 $7zipPassword = $_.password
 
+$folders = Set-FolderStructure $username $PackageSource $destination_path
+
+$ParentPath = $null
+$ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
+
+$source = join-path $ParentPath -ChildPath $Package
+
+Copy-Files $source".7z*" $folders["DataFolder"]
+Copy-Files $source"*.txt" $folders["EvidenceFolder"]
 
 }
-
-Set-FolderStructure $username $PackageSource $destination_path
-
-Import-Csv $DeliveryReport 
