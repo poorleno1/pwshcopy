@@ -119,12 +119,10 @@ $zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
 $zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
 $zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
 Add-Content $zipFileContentFileName -Value $zipFileContent
-
+$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
 
 $hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt")
 $PackageHash = Get-FileHash $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -Algorithm $hash_algoritm
-
-
 $HashFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_HashLog.txt"
 if ($hash -eq $PackageHash.Hash)
 {
@@ -136,7 +134,7 @@ else
 }
 
 
-$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
+
 
 
 }
