@@ -28,15 +28,10 @@ function Create-Folder ($destination_path, $foldername)
            Write-Host "Cannot create a folder $foldername in $destination_path"
            break
        }
-       finally
-       {
-            Write-Host "Success."
-       }
    }
    else
    {
         Write-Host "Folder $destination_path\$foldername already created."
-        $success = $true
    }
 }
 
@@ -46,7 +41,6 @@ function Create-Folder ($destination_path, $foldername)
 function Set-FolderStructure ($username, $PackageSource, $destination_path)
 {
    $Folders = [ordered]@{}
-   
    
    Create-Folder $destination_path $username
    
@@ -94,9 +88,9 @@ function Copy-Files ($source, $destination)
 }
 
 Function RoboCopy-Files {
-     [CmdletBinding()]Param($source, $destination,$log_path,$Overwrite=$false,$WithMove=$false)
+    [CmdletBinding()]Param($source, $destination,$log_path,$Overwrite=$false,$WithMove=$false)
 
-     Write-Host "Copying $source to $destination"
+    Write-Host "Copying $source to $destination"
     $robocopy_exe = get-command robocopy.exe | select -ExpandProperty source
     if (!($robocopy_exe))
     {
@@ -104,7 +98,6 @@ Function RoboCopy-Files {
         break
     }
     $robocopy_args = $(Split-Path $source -Parent) +" "+$destination+" " + $(Split-Path $source -Leaf) + " /R:5 /W:3 /LOG+:$log_path\robocopy.log"
-    $robocopy_args
     
     $p = Start-Process $robocopy_exe -ArgumentList $robocopy_args -Wait -PassThru
 
@@ -129,8 +122,6 @@ Function RoboCopy-Files {
         16 {Write-Verbose "Robocopy: ***Fatal Error***";break}
         Default {}
     }
-
-    return $p.ExitCode
 }
 
 function Check-Hash ($InputFile, $hash, $evidencePath, $Package)
@@ -149,46 +140,44 @@ function Check-Hash ($InputFile, $hash, $evidencePath, $Package)
 
 }
 
-function Get-7ZipContent ($InputFile, $LogFile)
+function Get-7ZipContent ($InputFile, $LogFile, $7zipPassword)
 {
     Write-Host "Getting content of $InputFile"
-    $zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
-    Add-Content $zipFileContentFileName -Value $zipFileContent
+    try
+    {
+        $zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
+        Add-Content $zipFileContentFileName -Value $zipFileContent
+    }
+    catch
+    {
+        Write-Host "Error: Problem with getting 7Zip content." -ForegroundColor Red
+    }
 }
 
 
 $DeliveryReportImported = Import-Csv $DeliveryReport
 
 Import-Csv $RequestFile | ForEach-Object {
-$Package =  $_.filename
-$username = $_.filename.split("_")[0]
-$PackageSource  = $_.filename.split("_")[1]
-$PointOfInterest = $_.filename.split("_")[2]+"_"+$_.filename.split("_")[3]
-$7zipPassword = $_.passwords
+    $Package =  $_.filename
+    $username = $_.filename.split("_")[0]
+    $PackageSource  = $_.filename.split("_")[1]
+    $PointOfInterest = $_.filename.split("_")[2]+"_"+$_.filename.split("_")[3]
+    $7zipPassword = $_.password
 
-$folders = Set-FolderStructure $username $PackageSource $destination_path
+    $folders = Set-FolderStructure $username $PackageSource $destination_path
 
-$ParentPath = $null
-$ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
+    $ParentPath = $null
+    $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
 
-$source = join-path $ParentPath -ChildPath $Package
+    $source = join-path $ParentPath -ChildPath $Package
+    RoboCopy-Files -source $source"*.txt" -destination $folders["EvidenceFolder"] -log_path $folders["EvidenceFolder"] -Verbose
+    RoboCopy-Files -source $source".7z*" -destination $folders["DataFolder"] -log_path $folders["EvidenceFolder"] -Verbose
 
-RoboCopy-Files -source $source"*.txt" -destination $folders["EvidenceFolder"] -log_path $folders["EvidenceFolder"] -Verbose
-RoboCopy-Files -source $source".7z*" -destination $folders["DataFolder"] -log_path $folders["EvidenceFolder"] -Verbose
+    $zipfile = $Package+".7z.001"
+    $zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
+    $zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
+    Get-7ZipContent -InputFile $zipfileFullName -LogFile $zipFileContentFileName $7zipPassword
 
-
-$zipfile = $Package+".7z.001"
-$zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
-$zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
-Get-7ZipContent -InputFile $zipfileFullName -LogFile $zipFileContentFileName 
-
-#$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
-
-$hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt")
-Check-Hash -hash $hash -InputFile $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -evidencePath $folders["EvidenceFolder"] -Package $Package
-
-
-
-
-
+    $hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt")
+    Check-Hash -hash $hash -InputFile $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -evidencePath $folders["EvidenceFolder"] -Package $Package
 }
