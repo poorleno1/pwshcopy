@@ -1,6 +1,7 @@
 ﻿#Requires –Modules 7Zip4Powershell
 #Installation of 7zip module: Install-Module -Name 7Zip4Powershell -Confirm:$false -Force
 
+
 $drive = "C:\scripts\DDT"
 $source_path = Join-Path $drive -ChildPath "LZ"
 $destination_path = Join-Path $drive -ChildPath "Preservation"
@@ -92,9 +93,67 @@ function Copy-Files ($source, $destination)
     return $c.name
 }
 
-function Check-Hash ($File, $hash)
-{
+Function RoboCopy-Files {
+     [CmdletBinding()]Param($source, $destination,$log_path,$Overwrite=$false,$WithMove=$false)
+
+     Write-Host "Copying $source to $destination"
+    $robocopy_exe = get-command robocopy.exe | select -ExpandProperty source
+    if (!($robocopy_exe))
+    {
+        Write-Host "Robocopy is not installed."
+        break
+    }
+    $robocopy_args = $(Split-Path $source -Parent) +" "+$destination+" " + $(Split-Path $source -Leaf) + " /R:5 /W:3 /LOG+:$log_path\robocopy.log"
+    $robocopy_args
     
+    $p = Start-Process $robocopy_exe -ArgumentList $robocopy_args -Wait -PassThru
+
+    switch ($p.ExitCode)
+    {
+        0 {Write-Verbose "Robocopy: No change"}
+        1 {Write-Verbose "Robocopy: OK Copy"}
+        2 {Write-Verbose "Robocopy: Extra files"}
+        3 {Write-Verbose "Robocopy: OK Copy + Extra files"}
+        4 {Write-Verbose "Robocopy: Mismatches"}
+        5 {Write-Verbose "Robocopy: OK Copy + Mismatches"}
+        6 {Write-Verbose "Robocopy: Mismatches + Extra files"}
+        7 {Write-Verbose "Robocopy: OK Copy + Mismatches + Extra files"}
+        8 {Write-Verbose "Robocopy: Fail"}
+        9 {Write-Verbose "Robocopy: OK Copy + Fail"}
+        10 {Write-Verbose "Robocopy: Fail + Extra files"}
+        11 {Write-Verbose "Robocopy: OK Copy + Fail + Extra files"}
+        12 {Write-Verbose "Robocopy: Fail + Mismatches"}
+        13 {Write-Verbose "Robocopy: OK Copy + Fail + Mismatches"}
+        14 {Write-Verbose "Robocopy: Fail + Mismatches + Extra files"}
+        15 {Write-Verbose "Robocopy: OK Copy + Fail + Mismatches + Extra files"}
+        16 {Write-Verbose "Robocopy: ***Fatal Error***";break}
+        Default {}
+    }
+
+    return $p.ExitCode
+}
+
+function Check-Hash ($InputFile, $hash, $evidencePath, $Package)
+{
+    Write-Host "Checking hash of $InputFile against $hash"
+    $PackageHash = Get-FileHash $InputFile -Algorithm $hash_algoritm
+    $HashFileContentFileName =  Join-Path $evidencePath -ChildPath "$($Package)_HashLog.txt"
+    if ($hash -eq $PackageHash.Hash)
+    {
+        Add-Content $HashFileContentFileName -Value "Hashes of $zipfileFullName matched!. $($PackageHash.Hash)"
+    }
+    else
+    {
+        Add-Content $HashFileContentFileName -Value "ERROR: Hashes of $zipfileFullName did not matched!. LogHash: $hash, calculated hash:$($PackageHash.Hash)"
+    }
+
+}
+
+function Get-7ZipContent ($InputFile, $LogFile)
+{
+    Write-Host "Getting content of $InputFile"
+    $zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
+    Add-Content $zipFileContentFileName -Value $zipFileContent
 }
 
 
@@ -114,24 +173,19 @@ $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandPrope
 
 $source = join-path $ParentPath -ChildPath $Package
 
-$zipfile = Copy-Files $source".7z*" $folders["DataFolder"]
+RoboCopy-Files -source $source"*.txt" -destination $folders["EvidenceFolder"] -log_path $folders["EvidenceFolder"] -Verbose
+RoboCopy-Files -source $source".7z*" -destination $folders["DataFolder"] -log_path $folders["EvidenceFolder"] -Verbose
+
+
+$zipfile = $Package+".7z.001"
 $zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
-$zipFileContent = Get-7Zip $zipfileFullName -Password $7zipPassword | select -ExpandProperty filename
 $zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
-Add-Content $zipFileContentFileName -Value $zipFileContent
-$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
+Get-7ZipContent -InputFile $zipfileFullName -LogFile $zipFileContentFileName 
+
+#$evidencefile = Copy-Files $source"*.txt" $folders["EvidenceFolder"]
 
 $hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt")
-$PackageHash = Get-FileHash $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -Algorithm $hash_algoritm
-$HashFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_HashLog.txt"
-if ($hash -eq $PackageHash.Hash)
-{
-    Add-Content $HashFileContentFileName -Value "Hashes of $zipfileFullName matched!. $($PackageHash.Hash)"
-}
-else
-{
-    Add-Content $HashFileContentFileName -Value "ERROR: Hashes of $zipfileFullName did not matched!. LogHash: $hash, calculated hash:$($PackageHash.Hash)"
-}
+Check-Hash -hash $hash -InputFile $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -evidencePath $folders["EvidenceFolder"] -Package $Package
 
 
 
