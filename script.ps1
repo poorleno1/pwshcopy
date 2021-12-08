@@ -242,7 +242,7 @@ function Main-Validate ($param1, $param2)
             "Encrypted Messages" = $null;
             "Normal Messages" = $null;
             "File Name" = Split-Path $_."Mailfile Path" -Leaf;
-            "File size" = $FileSize;
+            "File size" = [int]($FileSize/1kb);
             "File Hash" = $hash;
             "Package Name" = $_.filename;
             "Package Size" = $null;
