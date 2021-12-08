@@ -255,7 +255,7 @@ function Main-Validate ($param1, $param2)
 
         
         $reportName = $Package+"_rollup.csv"
-        $report | Export-Csv -Path $(Join-Path $ParentPath -ChildPath $reportName) -NoTypeInformation
+        $report |  convertto-csv -NoTypeInformation -Delimiter "," | % {$_ -replace '"',''} | Out-File $(Join-Path $ParentPath -ChildPath $reportName)
      
     }
 
