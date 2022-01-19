@@ -1,7 +1,15 @@
 ﻿param(
 [bool] $Validate=$true,
-[bool] $Process=$true
+[bool] $Process=$true,
+[parameter()][validateset('Notes','EV')]
+[string] $DataSourceType = 'EV'
 )
+
+#
+#
+# THIS IS POC code 
+#
+#
 
 #Requires –Modules 7Zip4Powershell
 #Installation of 7zip module: Install-Module -Name 7Zip4Powershell -Confirm:$false -Force
@@ -12,8 +20,15 @@ $source_path = Join-Path $drive -ChildPath "LZ"
 $destination_path = Join-Path $drive -ChildPath "Preservation"
 $trigger_path = Join-Path $drive -ChildPath "TRIGGER"
 
+#This part is for Lotus Notes, use proper datasource parameter
 $RequestFile = Join-Path $trigger_path -ChildPath "MSGM0018_BULK_REQUEST.csv"
 $DeliveryReport = Join-Path $trigger_path -ChildPath "MSGM0018_DELIVERY_REPORT.csv"
+
+#This part is for EV
+#$RequestFile = Join-Path $trigger_path -ChildPath "ctp_ev_bulk_request_20211008.csv"
+#$DeliveryReport = Join-Path $trigger_path -ChildPath "EV_Delivery_Report_IDS2_POC.csv"
+
+
 #Delivery report contains one entry for dbdirid
 $hash_algoritm = "SHA256"
 
@@ -155,6 +170,38 @@ function Get-7ZipContent ($InputFile, $LogFile, $7zipPassword)
     }
 }
 
+
+function Build-ReportName ($rn, $ParentPath)
+{
+    
+    #This function will build up to 10 rollup reports based on input file name and path
+    $reportPath = Join-Path $ParentPath -ChildPath $rn".csv"
+    $r = $rn
+    $found = $false
+    0..10 | % {
+
+        if ($_ -eq 0)
+        {
+            $r1 = $r+"_rollup.csv"
+        }
+        else
+        {
+            $r1= $r + "_rollup_$_.csv"
+        }
+        $ret = $null
+        $reportPath = Join-Path $ParentPath -ChildPath $r1
+        if (-not $found)
+        {
+            if (-not (Test-Path $reportPath))
+            {
+                $ret = $r1
+                $found = $true
+                $ret
+            }
+        }
+    }
+}
+
 function Main-Process ($param1, $param2)
 {
     
@@ -173,21 +220,42 @@ Import-Csv $RequestFile | ForEach-Object {
     $folders = Set-FolderStructure $username $PackageSource $destination_path
 
     $ParentPath = $null
-    $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
+    if ($DataSourceType -eq "Notes")
+    {
+        $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
+    }
+    elseif ($DataSourceType -eq "EV")
+    {
+        $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.custodian_email | select -ExpandProperty "Landing Zone Path"
+    }
+    else
+    {
 
+    }
     $source = join-path $ParentPath -ChildPath $Package
     RoboCopy-Files -source $source"*.txt" -destination $folders["EvidenceFolder"] -log_path $folders["EvidenceFolder"] -Verbose
     RoboCopy-Files -source $source".7z*" -destination $folders["DataFolder"] -log_path $folders["EvidenceFolder"] -Verbose
 
     $zipfile = $Package+".7z.001"
+    $zipfileFullName = $null
     $zipfileFullName =  join-path $folders["DataFolder"] -ChildPath $zipfile
     $zipFileContentFileName =  Join-Path $folders["EvidenceFolder"] -ChildPath "$($Package)_7ZipContent.txt"
     Get-7ZipContent -InputFile $zipfileFullName -LogFile $zipFileContentFileName $7zipPassword
     
     $hash = $null
+    $hashPath = $null
+    $hashPath = Join-Path $ParentPath -ChildPath $Package"_hash.txt"
+    if ($hashPath -and $(Test-Path $hashPath))
+    {
+        $hash =(Select-String -Path $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt") -Pattern "SHA256 for data"| Select-Object -ExpandProperty Line).split(":")[1].Trim()
+    }
+    else
+    {
+        Write-Warning "Hash file is missing: $hashPath. Continuing."
+    }
     #$hash = Get-Content $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt") | Select-String -pa "$Package"
     #Select-String -Path $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt") -Pattern $Package.ToString()
-    $hash =(Select-String -Path $(Join-Path $folders["EvidenceFolder"] -ChildPath $Package"_hash.txt") -Pattern "SHA256 for data"| Select-Object -ExpandProperty Line).split(":")[1].Trim()
+    
     Check-Hash -hash $hash -InputFile $(Join-Path $folders["DataFolder"] -ChildPath $zipfile) -evidencePath $folders["EvidenceFolder"] -Package $Package
     }
 }
@@ -207,60 +275,142 @@ function Main-Validate ($param1, $param2)
         $7zipPassword = $_.password
 
         $ParentPath = $null
-        $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
-        $FileSize = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "filesize"
-    
+        if ($DataSourceType -eq "Notes")
+        {
+            $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "Landing Zone Path"
+            $FileSize = $DeliveryReportImported | ? SMTP -eq $_.smtp | select -ExpandProperty "filesize" -ErrorAction SilentlyContinue
+        }
+        elseif ($DataSourceType -eq "EV")
+        {
+            $ParentPath = $DeliveryReportImported | ? SMTP -eq $_.custodian_email | select -ExpandProperty "Landing Zone Path"
+            $FileSize = $DeliveryReportImported | ? SMTP -eq $_.custodian_email | select -ExpandProperty "filesize" -ErrorAction SilentlyContinue
+        }
+        else
+        {
+
+        }
+        
+        if (-not $ParentPath)
+        {
+            Write-Host "Cannot get `"Landing Zone Path`" value. Check value in $RequestFile for user $username."
+            break
+        }
+        
+        
+        
+        if (-not $FileSize)
+        {
+            Write-Warning "Cannot get `"filesize`" value. Check value in $RequestFile for user $username."
+            #break
+        }
+        
+        $zipfileFullName = $null
         $zipfile = $Package+".7z.001"
-        $zipfileFullName = join-path $ParentPath -ChildPath $zipfile
-        $passwordCorrect = $false
         try
         {
-            Get-7Zip $zipfileFullName -Password $7zipPassword | select -First 1 -ErrorVariable stop | Out-Null
+            $zipfileFullName = join-path $ParentPath -ChildPath $zipfile -ErrorAction Stop
+        }
+        catch
+        {
+            Write-Host "Cannot create a variable with full path to ZIP file."
+            break
+        }
+        
+        
+        $passwordCorrect = $false
+        if ($zipfileFullName -and $(Test-path $zipfileFullName))
+        {
+            # This will error out in case of wrong password
+            Get-7Zip $zipfileFullName -Password $7zipPassword | select -First 1 -ErrorAction stop | Out-Null
             if ($?)
             {
                 $passwordCorrect = $true
             }
         }
-        catch 
+        else
         {
-            Write-Host "Zip file error"
+            Write-Host "Missing path to ZIP file $zipfile for user $username or File does not exists. Exiting"
+            break
         }
+        
 
         $hash = $null
-        $hash =(Select-String -Path $(Join-Path $ParentPath -ChildPath $Package"_hash.txt") -Pattern "SHA256 for data"| Select-Object -ExpandProperty Line).split(":")[1].Trim()
+        $hashPath = $null
+        $hashPath = Join-Path $ParentPath -ChildPath $Package"_hash.txt"
+        if ($hashPath -and $(Test-Path $hashPath))
+        {
+            $hash =(Select-String -Path $hashPath -Pattern "SHA256 for data"| Select-Object -ExpandProperty Line).split(":")[1].Trim()    
+        }
+        else
+        {
+            Write-Warning "Hash file is missing: $hashPath. Continuing."
+        }
+
+        
 
         #Creating input for csv rollup report
         
+        $val = $null
         [System.Collections.ArrayList]$report = @()
-        $val = [pscustomobject]@{
-            "DBDIRID"=$_.DBDirID; 
-            "SMTP"=$_.SMTP;
-            "MinDate" = $_.filename.split("_")[-2];
-            "MaxDate" = $_.filename.split("_")[-1];
-            "Total Messages" =$null;
-            "Signed Messages" =$null;
-            "Encrypted Messages" = $null;
-            "Normal Messages" = $null;
-            "File Name" = Split-Path $_."Mailfile Path" -Leaf;
-            "File size" = [int]($FileSize/1kb);
-            "File Hash" = $hash;
-            "Package Name" = $_.filename;
-            "Package Size" = $null;
-            "Package Hash" = $null;
-            "Password Verified" = $passwordCorrect
+        if ($DataSourceType -eq "Notes")
+        {
+            $val = [pscustomobject]@{
+                "DBDIRID"=$_.DBDirID; 
+                "SMTP"=$_.SMTP;
+                "MinDate" = $_.filename.split("_")[-2];
+                "MaxDate" = $_.filename.split("_")[-1];
+                "Total Messages" =$null;
+                "Signed Messages" =$null;
+                "Encrypted Messages" = $null;
+                "Normal Messages" = $null;
+                "File Name" = Split-Path $_."Mailfile Path" -Leaf;
+                "File size" = [int]($FileSize/1kb);
+                "File Hash" = $hash;
+                "Package Name" = $_.filename;
+                "Package Size" = $null;
+                "Package Hash" = $null;
+                "Password Verified" = $passwordCorrect
+                }
+        }
+        elseif ($DataSourceType -eq "EV")
+        {
+               $val = [pscustomobject]@{
+                "DBDIRID"=$_.dbdirid; 
+                "SMTP"=$_.custodian_email;
+                "MinDate" = $_.filename.Split("_")[-1].Split("-")[-2];
+                "MaxDate" = $_.filename.Split("_")[-1].Split("-")[-1];
+                "Total Messages" =$null;
+                "Signed Messages" =$null;
+                "Encrypted Messages" = $null;
+                "Normal Messages" = $null;
+                "File Name" = Split-Path $_.filename -Leaf;
+                "File size" = [int]($FileSize/1kb);
+                "File Hash" = $hash;
+                "Package Name" = $_.filename;
+                "Package Size" = $null;
+                "Package Hash" = $null;
+                "Password Verified" = $passwordCorrect
+                }
+        }
 
-            }
-        
-        $report.Add($val)
+        if ($val)
+        {
+            $report.Add($val)
+        }
+        else
+        {
+            Write-host "Nothing to be added to rollup report for user $username"
+            break
+        }
 
-        
-        $reportName = $Package+"_rollup.csv"
+        #$reportName = $Package+"_rollup.csv"
+        $reportName = Build-ReportName $($Package) $ParentPath
         Write-Host "Saving a validation report to $(Join-Path $ParentPath -ChildPath $reportName)"
         $report |  convertto-csv -NoTypeInformation -Delimiter "," | % {$_ -replace '"',''} | Out-File $(Join-Path $ParentPath -ChildPath $reportName)
-     
     }
-
 }
+
+
 
 if ($Validate -and $Process)
 {
