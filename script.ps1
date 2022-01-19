@@ -1,6 +1,6 @@
 ﻿param(
 [bool] $Validate=$true,
-[bool] $Process=$false
+[bool] $Process=$true
 )
 
 #Requires –Modules 7Zip4Powershell
@@ -16,7 +16,6 @@ $RequestFile = Join-Path $trigger_path -ChildPath "MSGM0018_BULK_REQUEST.csv"
 $DeliveryReport = Join-Path $trigger_path -ChildPath "MSGM0018_DELIVERY_REPORT.csv"
 #Delivery report contains one entry for dbdirid
 $hash_algoritm = "SHA256"
-
 
 function Create-Folder ($destination_path, $foldername)
 {
@@ -39,9 +38,6 @@ function Create-Folder ($destination_path, $foldername)
         Write-Host "Folder $destination_path\$foldername already created."
    }
 }
-
-
-
 
 function Set-FolderStructure ($username, $PackageSource, $destination_path)
 {
@@ -159,10 +155,12 @@ function Get-7ZipContent ($InputFile, $LogFile, $7zipPassword)
     }
 }
 
-
 function Main-Process ($param1, $param2)
 {
     
+#This function based on $RequestFile does following:
+# 1. Creates a folder stucture
+
 $DeliveryReportImported = Import-Csv $DeliveryReport
 
 Import-Csv $RequestFile | ForEach-Object {
@@ -196,6 +194,8 @@ Import-Csv $RequestFile | ForEach-Object {
 
 function Main-Validate ($param1, $param2)
 {
+    #This function creates a validation report in $ParentPath (property "Landing Zone Path" in $DeliveryReportImported)
+    
     Write-Host "Validation."
     $DeliveryReportImported = Import-Csv $DeliveryReport
 
@@ -255,12 +255,12 @@ function Main-Validate ($param1, $param2)
 
         
         $reportName = $Package+"_rollup.csv"
+        Write-Host "Saving a validation report to $(Join-Path $ParentPath -ChildPath $reportName)"
         $report |  convertto-csv -NoTypeInformation -Delimiter "," | % {$_ -replace '"',''} | Out-File $(Join-Path $ParentPath -ChildPath $reportName)
      
     }
 
 }
-
 
 if ($Validate -and $Process)
 {
